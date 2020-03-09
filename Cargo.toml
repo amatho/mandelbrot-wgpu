@@ -1,0 +1,13 @@
+[package]
+name = "mandelbrot-wgpu"
+version = "0.1.0"
+authors = ["Amandus Søve Thorsrud <ama.thorsrud@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wgpu = "0.4.0"
+winit = "0.21.0"
+zerocopy = "0.3.0"
+glsl-to-spirv = "0.1"
