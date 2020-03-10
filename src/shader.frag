@@ -1,20 +1,16 @@
 #version 450
 
-layout(origin_upper_left) in vec4 gl_FragCoord;
+in vec4 gl_FragCoord;
 layout(location = 0) out vec4 outColor;
 
 uniform Locals {
     double screenWidth;
     double screenHeight;
     double maxIter;
-    double pixelDelta;
+    double scale;
     double centerRe;
     double centerIm;
 };
-
-double pow2(double x) {
-    return x * x;
-}
 
 vec3 hsv2rgb(vec3 c) {
     vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -23,18 +19,22 @@ vec3 hsv2rgb(vec3 c) {
 }
 
 void main() {
-    double c_re = centerRe + (pixelDelta * (gl_FragCoord.x - double(screenWidth) / 2));
-    double c_im = centerIm - (pixelDelta * (gl_FragCoord.y - double(screenHeight) / 2));
-    dvec2 c = dvec2(c_re, c_im);
-    dvec2 z = c;
-    
-    float i;
-    for(i = 0; i < maxIter; i++) {
-        z = dvec2(pow2(z.x) - pow2(z.y), 2 * z.x * z.y) + c;
+    dvec2 c;
+    c.x = (gl_FragCoord.x - screenWidth / 2) * scale + centerRe;
+    c.y = (gl_FragCoord.y - screenHeight / 2) * scale - centerIm;
 
-        if (pow2(z.x) + pow2(z.y) > 4) {
+    dvec2 z = c;
+    int i;
+    for (i = 0; i < maxIter; i++) {
+        double x = (z.x * z.x - z.y * z.y) + c.x;
+        double y = (z.y * z.x + z.x * z.y) + c.y;
+
+        if ((x * x + y * y) > 4.0) {
             break;
         }
+
+        z.x = x;
+        z.y = y;
     }
 
     if (i == maxIter) {

@@ -13,17 +13,44 @@ struct Locals {
     screen_width: f64,
     screen_height: f64,
     max_iterations: f64,
-    pixel_delta: f64,
+    scale: f64,
     center_re: f64,
     center_im: f64,
 }
 
+fn usage() -> ! {
+    println!(
+        "Usage:
+    mandelbrot <width> <height>"
+    );
+    std::process::exit(1);
+}
+
 fn main() {
+    let args = std::env::args();
+    let (requested_width, requested_height) = if args.len() == 3 {
+        let values: Vec<_> = args
+            .skip(1)
+            .map(|s| s.parse::<u32>().unwrap_or_else(|_| usage()))
+            .collect();
+        (values[0], values[1])
+    } else {
+        (960, 720)
+    };
+
     let event_loop = EventLoop::new();
 
     #[cfg(not(feature = "gl"))]
     let (window, size, surface) = {
-        let window = winit::window::Window::new(&event_loop).unwrap();
+        let window = winit::window::WindowBuilder::new()
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                requested_width,
+                requested_height,
+            ))
+            .with_title("Mandelbrot Visualization")
+            .with_resizable(false)
+            .build(&event_loop)
+            .unwrap();
         let size = window.inner_size();
         let surface = wgpu::Surface::create(&window);
         (window, size, surface)
@@ -31,7 +58,13 @@ fn main() {
 
     #[cfg(feature = "gl")]
     let (window, instance, size, surface) = {
-        let wb = winit::WindowBuilder::new();
+        let wb = winit::window::WindowBuilder::new()
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                requested_width,
+                requested_height,
+            ))
+            .with_title("Mandelbrot Visualization")
+            .with_resizable(false);
         let cb = wgpu::glutin::ContextBuilder::new().with_vsync(true);
         let context = cb.build_windowed(wb, &event_loop).unwrap();
 
@@ -49,13 +82,15 @@ fn main() {
         (window, instance, size, surface)
     };
 
-    let adapter = wgpu::Adapter::request(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::Default,
-        backends: wgpu::BackendBit::PRIMARY,
-    })
+    let adapter = wgpu::Adapter::request(
+        &wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::Default,
+        },
+        wgpu::BackendBit::PRIMARY,
+    )
     .unwrap();
 
-    let (device, mut queue) = adapter.request_device(&wgpu::DeviceDescriptor {
+    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
         extensions: wgpu::Extensions {
             anisotropic_filtering: false,
         },
@@ -94,12 +129,18 @@ fn main() {
         bind_group_layouts: &[&bind_group_layout],
     });
 
-    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        size: std::mem::size_of::<Locals>() as wgpu::BufferAddress,
-        usage: wgpu::BufferUsage::UNIFORM
-            | wgpu::BufferUsage::COPY_DST
-            | wgpu::BufferUsage::COPY_SRC,
-    });
+    let mut locals = Locals {
+        screen_width: size.width as f64,
+        screen_height: size.height as f64,
+        max_iterations: 1000.0,
+        scale: 0.003,
+        center_re: -0.5,
+        center_im: 0.0,
+    };
+    let buffer = device.create_buffer_with_data(
+        locals.as_bytes(),
+        wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+    );
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &bind_group_layout,
@@ -154,14 +195,7 @@ fn main() {
 
     let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-    let mut locals = Locals {
-        screen_width: size.width as f64,
-        screen_height: size.height as f64,
-        max_iterations: 1000.0,
-        pixel_delta: 0.003_141_5,
-        center_re: -0.5,
-        center_im: 0.0,
-    };
+    let mut redraw = true;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -176,26 +210,27 @@ fn main() {
                 swap_chain = device.create_swap_chain(&surface, &sc_desc);
             }
             event::Event::RedrawRequested(_) => {
-                let frame = swap_chain.get_next_texture();
+                let frame = swap_chain
+                    .get_next_texture()
+                    .expect("Timeout when acquiring next swap chain texture");
 
                 let mut encoder =
                     device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
-                let b = device
-                    .create_buffer_mapped(
-                        std::mem::size_of::<Locals>(),
-                        wgpu::BufferUsage::UNIFORM
-                            | wgpu::BufferUsage::COPY_DST
-                            | wgpu::BufferUsage::COPY_SRC,
-                    )
-                    .fill_from_slice(locals.as_bytes());
-                encoder.copy_buffer_to_buffer(
-                    &b,
-                    0,
-                    &buffer,
-                    0,
-                    std::mem::size_of::<Locals>() as u64,
-                );
+                if redraw {
+                    let new_buffer = device.create_buffer_with_data(
+                        locals.as_bytes(),
+                        wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_SRC,
+                    );
+                    encoder.copy_buffer_to_buffer(
+                        &new_buffer,
+                        0,
+                        &buffer,
+                        0,
+                        std::mem::size_of::<Locals>() as wgpu::BufferAddress,
+                    );
+                    redraw = false;
+                }
 
                 {
                     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -228,7 +263,7 @@ fn main() {
                 if key == event::VirtualKeyCode::Escape {
                     *control_flow = ControlFlow::Exit;
                 } else {
-                    handle_input(key, &mut locals);
+                    redraw = handle_input(key, &mut locals);
                 }
             }
             event::Event::WindowEvent {
@@ -240,37 +275,24 @@ fn main() {
     });
 }
 
-fn handle_input(key_code: event::VirtualKeyCode, locals: &mut Locals) {
+fn handle_input(key_code: event::VirtualKeyCode, locals: &mut Locals) -> bool {
+    let mut redraw_needed = true;
     let shortest_dim = if locals.screen_width < locals.screen_height {
         locals.screen_width
     } else {
         locals.screen_height
     };
+    let step = locals.scale * shortest_dim / 100.0;
 
-    let step = locals.pixel_delta * f64::from(shortest_dim / 100.0);
-    let mut transform_re = 0.0;
-    let mut transform_im = 0.0;
-
-    if let event::VirtualKeyCode::A = key_code {
-        transform_re -= step;
-    }
-    if let event::VirtualKeyCode::D = key_code {
-        transform_re += step;
-    }
-    if let event::VirtualKeyCode::W = key_code {
-        transform_im += step;
-    }
-    if let event::VirtualKeyCode::S = key_code {
-        transform_im -= step;
+    match key_code {
+        event::VirtualKeyCode::A => locals.center_re -= step,
+        event::VirtualKeyCode::D => locals.center_re += step,
+        event::VirtualKeyCode::W => locals.center_im += step,
+        event::VirtualKeyCode::S => locals.center_im -= step,
+        event::VirtualKeyCode::Up => locals.scale /= ZOOM_FACTOR,
+        event::VirtualKeyCode::Down => locals.scale *= ZOOM_FACTOR,
+        _ => redraw_needed = false,
     }
 
-    if let event::VirtualKeyCode::Up = key_code {
-        locals.pixel_delta /= ZOOM_FACTOR;
-    }
-    if let event::VirtualKeyCode::Down = key_code {
-        locals.pixel_delta *= ZOOM_FACTOR;
-    }
-
-    locals.center_re += transform_re;
-    locals.center_im += transform_im;
+    redraw_needed
 }
