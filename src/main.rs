@@ -1,3 +1,5 @@
+mod shaders;
+
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
@@ -5,37 +7,145 @@ use winit::{
 
 use zerocopy::{AsBytes, FromBytes};
 
-const ZOOM_FACTOR: f32 = 1.05;
+const ZOOM_FACTOR: GPUFloat = 1.05;
+
+#[cfg(not(feature = "double"))]
+type GPUFloat = f32;
+#[cfg(feature = "double")]
+type GPUFloat = f64;
+
+struct State {
+    window_size: (u32, u32),
+    max_iterations: u32,
+    scale: GPUFloat,
+    center: (GPUFloat, GPUFloat),
+}
+
+impl State {
+    fn new(
+        window_size: (u32, u32),
+        max_iterations: u32,
+        scale: GPUFloat,
+        center: (GPUFloat, GPUFloat),
+    ) -> State {
+        State {
+            window_size,
+            max_iterations,
+            scale,
+            center,
+        }
+    }
+
+    fn fragment_uniform(&self) -> FragmentUniform {
+        FragmentUniform {
+            screen_width: self.window_size.0 as GPUFloat,
+            screen_height: self.window_size.1 as GPUFloat,
+            max_iterations: self.max_iterations as GPUFloat,
+            scale: self.scale,
+            center_re: self.center.0,
+            center_im: self.center.1,
+        }
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State {
+            window_size: (800, 600),
+            max_iterations: 200,
+            scale: 0.003,
+            center: (-0.5, 0.0),
+        }
+    }
+}
 
 #[derive(Copy, Clone, AsBytes, FromBytes)]
 #[repr(C)]
-struct Locals {
-    screen_width: f32,
-    screen_height: f32,
-    max_iterations: f32,
-    scale: f32,
-    center_re: f32,
-    center_im: f32,
+struct FragmentUniform {
+    screen_width: GPUFloat,
+    screen_height: GPUFloat,
+    max_iterations: GPUFloat,
+    scale: GPUFloat,
+    center_re: GPUFloat,
+    center_im: GPUFloat,
 }
 
 fn usage() -> ! {
     println!(
         "Usage:
-    mandelbrot <width> <height>"
+    mandelbrot [<iterations> <center real> <center imag> <width> <height>]
+    or
+    mandelbrot [<iterations> <center real> <center imag>]
+    or
+    mandelbrot [<iterations>]
+    "
     );
     std::process::exit(1);
 }
 
-fn main() {
-    let args = std::env::args();
-    let (requested_width, requested_height) = if args.len() == 3 {
-        let values: Vec<_> = args
-            .skip(1)
-            .map(|s| s.parse::<u32>().unwrap_or_else(|_| usage()))
-            .collect();
-        (values[0], values[1])
+fn handle_input(key_code: event::VirtualKeyCode, state: &mut State) -> bool {
+    let mut redraw_needed = true;
+    let shortest_dim = if state.window_size.0 < state.window_size.1 {
+        state.window_size.0
     } else {
-        (960, 720)
+        state.window_size.1
+    };
+    let step = state.scale * shortest_dim as GPUFloat / 100.0 as GPUFloat;
+
+    match key_code {
+        event::VirtualKeyCode::A => state.center.0 -= step,
+        event::VirtualKeyCode::D => state.center.0 += step,
+        event::VirtualKeyCode::W => state.center.1 += step,
+        event::VirtualKeyCode::S => state.center.1 -= step,
+        event::VirtualKeyCode::Up => state.scale /= ZOOM_FACTOR,
+        event::VirtualKeyCode::Down => state.scale *= ZOOM_FACTOR,
+        event::VirtualKeyCode::Left => {
+            if state.max_iterations > 200 {
+                state.max_iterations -= 200
+            }
+        }
+        event::VirtualKeyCode::Right => state.max_iterations += 200,
+        _ => redraw_needed = false,
+    }
+
+    redraw_needed
+}
+
+fn main() {
+    let mut args = std::env::args();
+    args.next();
+
+    let mut state = if args.len() == 5 {
+        let values: Vec<_> = args
+            .map(|s| s.parse::<f32>().unwrap_or_else(|_| usage()))
+            .collect();
+        State::new(
+            (values[3] as u32, values[4] as u32),
+            values[0] as u32,
+            0.003,
+            (values[1] as GPUFloat, values[2] as GPUFloat),
+        )
+    } else if args.len() == 3 {
+        let values: Vec<_> = args
+            .map(|s| s.parse::<f32>().unwrap_or_else(|_| usage()))
+            .collect();
+
+        let mut state = State::default();
+        state.max_iterations = values[0] as u32;
+        state.center = (values[1] as GPUFloat, values[2] as GPUFloat);
+        state
+    } else if args.len() == 1 {
+        let mut state = State::default();
+        state.max_iterations = args
+            .next()
+            .unwrap()
+            .parse::<u32>()
+            .unwrap_or_else(|_| usage());
+        state
+    } else if args.len() == 0 {
+        State::default()
+    } else {
+        usage();
     };
 
     let event_loop = EventLoop::new();
@@ -43,10 +153,7 @@ fn main() {
     #[cfg(not(feature = "gl"))]
     let (window, size, surface) = {
         let window = winit::window::WindowBuilder::new()
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                requested_width,
-                requested_height,
-            ))
+            .with_inner_size(winit::dpi::LogicalSize::<u32>::from(state.window_size))
             .with_title("Mandelbrot Visualization")
             .with_resizable(false)
             .build(&event_loop)
@@ -59,10 +166,7 @@ fn main() {
     #[cfg(feature = "gl")]
     let (window, instance, size, surface) = {
         let wb = winit::window::WindowBuilder::new()
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                requested_width,
-                requested_height,
-            ))
+            .with_inner_size(winit::dpi::LogicalSize::<u32>::from(state.window_size))
             .with_title("Mandelbrot Visualization")
             .with_resizable(false);
         let cb = wgpu::glutin::ContextBuilder::new().with_vsync(true);
@@ -97,25 +201,8 @@ fn main() {
         limits: wgpu::Limits::default(),
     });
 
-    let vs = wgpu::read_spirv(
-        glsl_to_spirv::compile(
-            include_str!("shader.vert"),
-            glsl_to_spirv::ShaderType::Vertex,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let vs_module = device.create_shader_module(&vs);
-
-    let fs = wgpu::read_spirv(
-        glsl_to_spirv::compile(
-            include_str!("shader.frag"),
-            glsl_to_spirv::ShaderType::Fragment,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let fs_module = device.create_shader_module(&fs);
+    let vs_module = shaders::vertex_shader_module(&device);
+    let fs_module = shaders::fragment_shader_module(&device);
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         bindings: &[wgpu::BindGroupLayoutBinding {
@@ -129,16 +216,8 @@ fn main() {
         bind_group_layouts: &[&bind_group_layout],
     });
 
-    let mut locals = Locals {
-        screen_width: size.width as f32,
-        screen_height: size.height as f32,
-        max_iterations: 1000.0,
-        scale: 0.003,
-        center_re: -0.5,
-        center_im: 0.0,
-    };
     let buffer = device.create_buffer_with_data(
-        locals.as_bytes(),
+        state.fragment_uniform().as_bytes(),
         wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
     );
 
@@ -148,7 +227,7 @@ fn main() {
             binding: 0,
             resource: wgpu::BindingResource::Buffer {
                 buffer: &buffer,
-                range: 0..std::mem::size_of::<Locals>() as wgpu::BufferAddress,
+                range: 0..std::mem::size_of::<FragmentUniform>() as wgpu::BufferAddress,
             },
         }],
     });
@@ -219,7 +298,7 @@ fn main() {
 
                 if redraw {
                     let new_buffer = device.create_buffer_with_data(
-                        locals.as_bytes(),
+                        state.fragment_uniform().as_bytes(),
                         wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_SRC,
                     );
                     encoder.copy_buffer_to_buffer(
@@ -227,7 +306,7 @@ fn main() {
                         0,
                         &buffer,
                         0,
-                        std::mem::size_of::<Locals>() as wgpu::BufferAddress,
+                        std::mem::size_of::<FragmentUniform>() as wgpu::BufferAddress,
                     );
                     redraw = false;
                 }
@@ -263,7 +342,7 @@ fn main() {
                 if key == event::VirtualKeyCode::Escape {
                     *control_flow = ControlFlow::Exit;
                 } else {
-                    redraw = handle_input(key, &mut locals);
+                    redraw = handle_input(key, &mut state);
                 }
             }
             event::Event::WindowEvent {
@@ -273,26 +352,4 @@ fn main() {
             _ => {}
         }
     });
-}
-
-fn handle_input(key_code: event::VirtualKeyCode, locals: &mut Locals) -> bool {
-    let mut redraw_needed = true;
-    let shortest_dim = if locals.screen_width < locals.screen_height {
-        locals.screen_width
-    } else {
-        locals.screen_height
-    };
-    let step = locals.scale * shortest_dim / 100.0;
-
-    match key_code {
-        event::VirtualKeyCode::A => locals.center_re -= step,
-        event::VirtualKeyCode::D => locals.center_re += step,
-        event::VirtualKeyCode::W => locals.center_im += step,
-        event::VirtualKeyCode::S => locals.center_im -= step,
-        event::VirtualKeyCode::Up => locals.scale /= ZOOM_FACTOR,
-        event::VirtualKeyCode::Down => locals.scale *= ZOOM_FACTOR,
-        _ => redraw_needed = false,
-    }
-
-    redraw_needed
 }
