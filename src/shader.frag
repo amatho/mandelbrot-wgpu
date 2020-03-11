@@ -4,12 +4,12 @@ in vec4 gl_FragCoord;
 layout(location = 0) out vec4 outColor;
 
 uniform Locals {
-    double screenWidth;
-    double screenHeight;
-    double maxIter;
-    double scale;
-    double centerRe;
-    double centerIm;
+    float screenWidth;
+    float screenHeight;
+    float maxIter;
+    float scale;
+    float centerRe;
+    float centerIm;
 };
 
 vec3 hsv2rgb(vec3 c) {
@@ -19,15 +19,15 @@ vec3 hsv2rgb(vec3 c) {
 }
 
 void main() {
-    dvec2 c;
+    vec2 c;
     c.x = (gl_FragCoord.x - screenWidth / 2) * scale + centerRe;
     c.y = (gl_FragCoord.y - screenHeight / 2) * scale - centerIm;
 
-    dvec2 z = c;
+    vec2 z = c;
     int i;
     for (i = 0; i < maxIter; i++) {
-        double x = (z.x * z.x - z.y * z.y) + c.x;
-        double y = (z.y * z.x + z.x * z.y) + c.y;
+        float x = (z.x * z.x - z.y * z.y) + c.x;
+        float y = (z.y * z.x + z.x * z.y) + c.y;
 
         if ((x * x + y * y) > 4.0) {
             break;

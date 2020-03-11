@@ -5,17 +5,17 @@ use winit::{
 
 use zerocopy::{AsBytes, FromBytes};
 
-const ZOOM_FACTOR: f64 = 1.05;
+const ZOOM_FACTOR: f32 = 1.05;
 
 #[derive(Copy, Clone, AsBytes, FromBytes)]
 #[repr(C)]
 struct Locals {
-    screen_width: f64,
-    screen_height: f64,
-    max_iterations: f64,
-    scale: f64,
-    center_re: f64,
-    center_im: f64,
+    screen_width: f32,
+    screen_height: f32,
+    max_iterations: f32,
+    scale: f32,
+    center_re: f32,
+    center_im: f32,
 }
 
 fn usage() -> ! {
@@ -130,8 +130,8 @@ fn main() {
     });
 
     let mut locals = Locals {
-        screen_width: size.width as f64,
-        screen_height: size.height as f64,
+        screen_width: size.width as f32,
+        screen_height: size.height as f32,
         max_iterations: 1000.0,
         scale: 0.003,
         center_re: -0.5,
