@@ -4,10 +4,10 @@ use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
 };
+use zerocopy::AsBytes;
 
-use zerocopy::{AsBytes, FromBytes};
-
-const ZOOM_FACTOR: GPUFloat = 1.05;
+const ZOOM_FACTOR: f64 = 1.05;
+const TRANSFORM_STEP: f64 = 0.01;
 
 #[cfg(not(feature = "double"))]
 type GPUFloat = f32;
@@ -17,33 +17,21 @@ type GPUFloat = f64;
 struct State {
     window_size: (u32, u32),
     max_iterations: u32,
-    scale: GPUFloat,
-    center: (GPUFloat, GPUFloat),
+    scale: f64,
+    center: (f64, f64),
 }
 
 impl State {
-    fn new(
-        window_size: (u32, u32),
-        max_iterations: u32,
-        scale: GPUFloat,
-        center: (GPUFloat, GPUFloat),
-    ) -> State {
-        State {
-            window_size,
-            max_iterations,
-            scale,
-            center,
-        }
-    }
-
     fn fragment_uniform(&self) -> FragmentUniform {
         FragmentUniform {
-            screen_width: self.window_size.0 as GPUFloat,
-            screen_height: self.window_size.1 as GPUFloat,
-            max_iterations: self.max_iterations as GPUFloat,
-            scale: self.scale,
-            center_re: self.center.0,
-            center_im: self.center.1,
+            screen_size: [
+                self.window_size.0 as GPUFloat,
+                self.window_size.1 as GPUFloat,
+            ],
+            center: [self.center.0 as GPUFloat, self.center.1 as GPUFloat],
+            scale: self.scale as GPUFloat,
+            max_iterations: self.max_iterations,
+            _padding: 0,
         }
     }
 }
@@ -53,21 +41,20 @@ impl Default for State {
         State {
             window_size: (800, 600),
             max_iterations: 200,
-            scale: 0.003,
+            scale: 2.0,
             center: (-0.5, 0.0),
         }
     }
 }
 
-#[derive(Copy, Clone, AsBytes, FromBytes)]
+#[derive(Copy, Clone, AsBytes)]
 #[repr(C)]
 struct FragmentUniform {
-    screen_width: GPUFloat,
-    screen_height: GPUFloat,
-    max_iterations: GPUFloat,
+    screen_size: [GPUFloat; 2],
+    center: [GPUFloat; 2],
     scale: GPUFloat,
-    center_re: GPUFloat,
-    center_im: GPUFloat,
+    max_iterations: u32,
+    _padding: u32,
 }
 
 fn usage() -> ! {
@@ -85,12 +72,7 @@ fn usage() -> ! {
 
 fn handle_input(key_code: event::VirtualKeyCode, state: &mut State) -> bool {
     let mut redraw_needed = true;
-    let shortest_dim = if state.window_size.0 < state.window_size.1 {
-        state.window_size.0
-    } else {
-        state.window_size.1
-    };
-    let step = state.scale * shortest_dim as GPUFloat / 100.0 as GPUFloat;
+    let step = TRANSFORM_STEP * state.scale;
 
     match key_code {
         event::VirtualKeyCode::A => state.center.0 -= step,
@@ -117,31 +99,34 @@ fn main() {
 
     let mut state = if args.len() == 5 {
         let values: Vec<_> = args
-            .map(|s| s.parse::<f32>().unwrap_or_else(|_| usage()))
-            .collect();
-        State::new(
-            (values[3] as u32, values[4] as u32),
-            values[0] as u32,
-            0.003,
-            (values[1] as GPUFloat, values[2] as GPUFloat),
-        )
-    } else if args.len() == 3 {
-        let values: Vec<_> = args
-            .map(|s| s.parse::<f32>().unwrap_or_else(|_| usage()))
+            .map(|s| s.parse::<f64>().unwrap_or_else(|_| usage()))
             .collect();
 
-        let mut state = State::default();
-        state.max_iterations = values[0] as u32;
-        state.center = (values[1] as GPUFloat, values[2] as GPUFloat);
-        state
+        State {
+            window_size: (values[3] as u32, values[4] as u32),
+            max_iterations: values[0] as u32,
+            center: (values[1], values[2]),
+            ..Default::default()
+        }
+    } else if args.len() == 3 {
+        let values: Vec<_> = args
+            .map(|s| s.parse::<f64>().unwrap_or_else(|_| usage()))
+            .collect();
+
+        State {
+            max_iterations: values[0] as u32,
+            center: (values[1], values[2]),
+            ..Default::default()
+        }
     } else if args.len() == 1 {
-        let mut state = State::default();
-        state.max_iterations = args
-            .next()
-            .unwrap()
-            .parse::<u32>()
-            .unwrap_or_else(|_| usage());
-        state
+        State {
+            max_iterations: args
+                .next()
+                .unwrap()
+                .parse::<u32>()
+                .unwrap_or_else(|_| usage()),
+            ..Default::default()
+        }
     } else if args.len() == 0 {
         State::default()
     } else {
@@ -289,6 +274,10 @@ fn main() {
                 swap_chain = device.create_swap_chain(&surface, &sc_desc);
             }
             event::Event::RedrawRequested(_) => {
+                if !redraw {
+                    return;
+                }
+
                 let frame = swap_chain
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
