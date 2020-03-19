@@ -319,19 +319,22 @@ fn main() {
 
                 queue.submit(&[encoder.finish()]);
             }
-            event::Event::DeviceEvent {
+            event::Event::WindowEvent {
                 event:
-                    event::DeviceEvent::Key(event::KeyboardInput {
-                        state: event::ElementState::Pressed,
-                        virtual_keycode: Some(key),
+                    event::WindowEvent::KeyboardInput {
+                        input:
+                            event::KeyboardInput {
+                                virtual_keycode: Some(key_code),
+                                ..
+                            },
                         ..
-                    }),
+                    },
                 ..
             } => {
-                if key == event::VirtualKeyCode::Escape {
+                if key_code == event::VirtualKeyCode::Escape {
                     *control_flow = ControlFlow::Exit;
                 } else {
-                    redraw = handle_input(key, &mut state);
+                    redraw = handle_input(key_code, &mut state);
                 }
             }
             event::Event::WindowEvent {
