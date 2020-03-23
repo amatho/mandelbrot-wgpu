@@ -138,7 +138,7 @@ fn main() {
     #[cfg(not(feature = "gl"))]
     let (window, size, surface) = {
         let window = winit::window::WindowBuilder::new()
-            .with_inner_size(winit::dpi::LogicalSize::<u32>::from(state.window_size))
+            .with_inner_size(winit::dpi::PhysicalSize::<u32>::from(state.window_size))
             .with_title("Mandelbrot Visualization")
             .with_resizable(false)
             .build(&event_loop)
@@ -151,7 +151,7 @@ fn main() {
     #[cfg(feature = "gl")]
     let (window, instance, size, surface) = {
         let wb = winit::window::WindowBuilder::new()
-            .with_inner_size(winit::dpi::LogicalSize::<u32>::from(state.window_size))
+            .with_inner_size(winit::dpi::PhysicalSize::<u32>::from(state.window_size))
             .with_title("Mandelbrot Visualization")
             .with_resizable(false);
         let cb = wgpu::glutin::ContextBuilder::new().with_vsync(true);
