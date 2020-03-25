@@ -1,5 +1,6 @@
 mod shaders;
 
+use std::fmt::{self, Display};
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
@@ -47,6 +48,16 @@ impl Default for State {
     }
 }
 
+impl Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Center: {:?}, Scale: {}, Iterations: {}",
+            self.center, self.scale, self.max_iterations
+        )
+    }
+}
+
 #[derive(Copy, Clone, AsBytes)]
 #[repr(C)]
 struct FragmentUniform {
@@ -87,6 +98,7 @@ fn handle_input(key_code: event::VirtualKeyCode, state: &mut State) -> bool {
             }
         }
         event::VirtualKeyCode::Right => state.max_iterations += 200,
+        event::VirtualKeyCode::I => println!("{}", state),
         _ => redraw_needed = false,
     }
 
@@ -132,6 +144,8 @@ fn main() {
     } else {
         usage();
     };
+
+    println!("{}", state);
 
     let event_loop = EventLoop::new();
 
@@ -325,6 +339,7 @@ fn main() {
                         input:
                             event::KeyboardInput {
                                 virtual_keycode: Some(key_code),
+                                state: event::ElementState::Pressed,
                                 ..
                             },
                         ..
