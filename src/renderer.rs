@@ -110,7 +110,7 @@ impl Renderer {
             present_mode: wgpu::PresentMode::Vsync,
         };
 
-        let swap_chain = device.create_swap_chain(&window.surface, &sc_desc);
+        let swap_chain = device.create_swap_chain(window.surface(), &sc_desc);
 
         Renderer {
             window,
@@ -131,7 +131,7 @@ impl Renderer {
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll;
             match event {
-                event::Event::MainEventsCleared => self.window.window.request_redraw(),
+                event::Event::MainEventsCleared => self.window.inner_window().request_redraw(),
                 event::Event::WindowEvent {
                     event: event::WindowEvent::Resized(size),
                     ..
@@ -140,7 +140,7 @@ impl Renderer {
                     self.sc_desc.height = size.height;
                     self.swap_chain = self
                         .device
-                        .create_swap_chain(&self.window.surface, &self.sc_desc);
+                        .create_swap_chain(self.window.surface(), &self.sc_desc);
                 }
                 event::Event::RedrawRequested(_) => {
                     if !redraw {

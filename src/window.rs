@@ -3,8 +3,8 @@ use wgpu::Surface;
 use winit::event_loop::EventLoop;
 
 pub struct Window {
-    pub window: winit::window::Window,
-    pub surface: Surface,
+    inner: winit::window::Window,
+    surface: Surface,
 }
 
 impl Window {
@@ -38,6 +38,17 @@ impl Window {
             (window, instance, surface)
         };
 
-        Window { window, surface }
+        Window {
+            inner: window,
+            surface,
+        }
+    }
+
+    pub fn inner_window(&self) -> &winit::window::Window {
+        &self.inner
+    }
+
+    pub fn surface(&self) -> &Surface {
+        &self.surface
     }
 }
