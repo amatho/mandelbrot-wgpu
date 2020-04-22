@@ -7,7 +7,6 @@ edition = "2018"
 [features]
 default = []
 double = []
-gl = []
 vulkan = ["wgpu/vulkan"]
 
 [dependencies]
