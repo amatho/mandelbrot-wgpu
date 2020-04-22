@@ -1,17 +1,19 @@
 use crate::{
     shaders,
     state::{FragmentUniform, State},
-    window::Window,
 };
-use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SwapChain, SwapChainDescriptor};
+use wgpu::{
+    BindGroup, Buffer, Device, Queue, RenderPipeline, Surface, SwapChain, SwapChainDescriptor,
+};
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
+    window::Window,
 };
 use zerocopy::AsBytes;
 
 pub struct Renderer {
-    window: Window,
+    surface: Surface,
     device: Device,
     queue: Queue,
     buffer: Buffer,
@@ -23,7 +25,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(window: Window, state: State) -> Self {
+    pub fn new(state: State, window: &Window) -> Self {
+        let surface = wgpu::Surface::create(window);
+
         let adapter = wgpu::Adapter::request(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::Default,
@@ -110,10 +114,10 @@ impl Renderer {
             present_mode: wgpu::PresentMode::Vsync,
         };
 
-        let swap_chain = device.create_swap_chain(window.surface(), &sc_desc);
+        let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
         Renderer {
-            window,
+            surface,
             device,
             queue,
             buffer,
@@ -125,22 +129,20 @@ impl Renderer {
         }
     }
 
-    pub fn run_event_loop(mut self, event_loop: EventLoop<()>) {
+    pub fn run_event_loop(mut self, event_loop: EventLoop<()>, window: Window) {
         let mut redraw = true;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll;
             match event {
-                event::Event::MainEventsCleared => self.window.inner_window().request_redraw(),
+                event::Event::MainEventsCleared => window.request_redraw(),
                 event::Event::WindowEvent {
                     event: event::WindowEvent::Resized(size),
                     ..
                 } => {
                     self.sc_desc.width = size.width;
                     self.sc_desc.height = size.height;
-                    self.swap_chain = self
-                        .device
-                        .create_swap_chain(self.window.surface(), &self.sc_desc);
+                    self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
                 }
                 event::Event::RedrawRequested(_) => {
                     if !redraw {
