@@ -1,3 +1,3 @@
 fn main() {
-    mandelbrot_wgpu::run();
+    futures::executor::block_on(mandelbrot_wgpu::run());
 }

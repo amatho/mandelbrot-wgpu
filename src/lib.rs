@@ -6,13 +6,13 @@ use renderer::Renderer;
 use state::State;
 use winit::event_loop::EventLoop;
 
-pub fn run() {
+pub async fn run() {
     let state = State::from_args();
     println!("{}", state);
 
     let event_loop = EventLoop::new();
     let window = create_window(&event_loop, state.window_size);
-    let renderer = Renderer::new(state, &window);
+    let renderer = Renderer::new(state, &window).await;
 
     renderer.run_event_loop(event_loop, window);
 }

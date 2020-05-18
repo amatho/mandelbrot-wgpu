@@ -25,33 +25,38 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(state: State, window: &Window) -> Self {
+    pub async fn new(state: State, window: &Window) -> Self {
         let surface = wgpu::Surface::create(window);
 
         let adapter = wgpu::Adapter::request(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::Default,
+                compatible_surface: Some(&surface),
             },
             wgpu::BackendBit::PRIMARY,
         )
+        .await
         .unwrap();
 
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions {
-                anisotropic_filtering: false,
-            },
-            limits: wgpu::Limits::default(),
-        });
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                extensions: wgpu::Extensions {
+                    anisotropic_filtering: false,
+                },
+                limits: wgpu::Limits::default(),
+            })
+            .await;
 
         let vs_module = shaders::vertex_shader_module(&device);
         let fs_module = shaders::fragment_shader_module(&device);
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[wgpu::BindGroupLayoutBinding {
+            bindings: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStage::FRAGMENT,
                 ty: wgpu::BindingType::UniformBuffer { dynamic: false },
             }],
+            label: None,
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -72,6 +77,7 @@ impl Renderer {
                     range: 0..std::mem::size_of::<FragmentUniform>() as wgpu::BufferAddress,
                 },
             }],
+            label: None,
         });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -99,8 +105,10 @@ impl Renderer {
                 write_mask: wgpu::ColorWrite::ALL,
             }],
             depth_stencil_state: None,
-            index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[],
+            vertex_state: wgpu::VertexStateDescriptor {
+                index_format: wgpu::IndexFormat::Uint16,
+                vertex_buffers: &[],
+            },
             sample_count: 1,
             sample_mask: !0,
             alpha_to_coverage_enabled: false,
@@ -111,7 +119,7 @@ impl Renderer {
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
             width: state.window_size.0,
             height: state.window_size.1,
-            present_mode: wgpu::PresentMode::Vsync,
+            present_mode: wgpu::PresentMode::Mailbox,
         };
 
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
@@ -156,7 +164,7 @@ impl Renderer {
 
                     let mut encoder = self
                         .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                     if redraw {
                         let new_buffer = self.device.create_buffer_with_data(
