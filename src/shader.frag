@@ -1,13 +1,15 @@
 #version 450
 
+precision highp float;
+
 in vec4 gl_FragCoord;
 layout(location = 0) out vec4 outColor;
 
-uniform Locals {
+layout(set = 0, binding = 0) uniform Locals {
     vec2 screenSize;
     vec2 center;
     float scale;
-    int maxIter;
+    uint maxIter;
 };
 
 vec3 hsv2rgb(vec3 c) {

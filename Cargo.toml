@@ -5,15 +5,14 @@ authors = ["Amandus Søve Thorsrud <ama.thorsrud@gmail.com>"]
 edition = "2018"
 
 [features]
-default = []
 double = []
 
 [dependencies]
-winit = "0.22.2"
-futures = "0.3.5"
+wgpu = "0.6.2"
+winit = "0.23.0"
+futures = "0.3.8"
 zerocopy = "0.3.0"
-glsl-to-spirv = "0.1"
 
-[dependencies.wgpu]
-version = "0.5.2"
-features = ["vulkan"]
+[build-dependencies]
+shaderc = "0.7.0"
+walkdir = "2.3.1"
