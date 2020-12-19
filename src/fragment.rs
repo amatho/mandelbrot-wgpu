@@ -13,15 +13,20 @@ macro_rules! next_arg {
     };
 }
 
-const ZOOM_FACTOR: f32 = 1.05;
-const TRANSFORM_STEP: f32 = 0.01;
+const ZOOM_FACTOR: f64 = 1.05;
+const TRANSFORM_STEP: f64 = 0.01;
+
+#[cfg(not(feature = "double"))]
+type GPUFloat = f32;
+#[cfg(feature = "double")]
+type GPUFloat = f64;
 
 #[non_exhaustive]
 pub struct FragmentState {
     pub size: PhysicalSize<u32>,
     pub max_iterations: u32,
-    pub scale: f32,
-    pub center: (f32, f32),
+    pub scale: f64,
+    pub center: (f64, f64),
 }
 
 impl FragmentState {
@@ -32,7 +37,7 @@ impl FragmentState {
         match args.len() {
             5 => {
                 let max_iterations = next_arg!(args, u32);
-                let center = (next_arg!(args, f32), next_arg!(args, f32));
+                let center = (next_arg!(args, f64), next_arg!(args, f64));
                 let size = PhysicalSize::new(next_arg!(args, u32), next_arg!(args, u32));
 
                 FragmentState {
@@ -44,7 +49,7 @@ impl FragmentState {
             }
             3 => {
                 let max_iterations = next_arg!(args, u32);
-                let center = (next_arg!(args, f32), next_arg!(args, f32));
+                let center = (next_arg!(args, f64), next_arg!(args, f64));
 
                 FragmentState {
                     max_iterations,
@@ -58,15 +63,6 @@ impl FragmentState {
             },
             0 => FragmentState::default(),
             _ => usage(),
-        }
-    }
-
-    pub fn fragment_uniform(&self) -> FragmentUniform {
-        FragmentUniform {
-            screen_size: [self.size.width as f32, self.size.height as f32],
-            center: [self.center.0, self.center.1],
-            scale: self.scale,
-            max_iterations: self.max_iterations,
         }
     }
 
@@ -103,6 +99,16 @@ impl FragmentState {
 
         true
     }
+
+    pub fn fragment_uniform(&self) -> FragmentUniform {
+        FragmentUniform {
+            screen_size: [self.size.width as GPUFloat, self.size.height as GPUFloat],
+            center: [self.center.0 as GPUFloat, self.center.1 as GPUFloat],
+            scale: self.scale as GPUFloat,
+            max_iterations: self.max_iterations,
+            _padding: 0,
+        }
+    }
 }
 
 impl Default for FragmentState {
@@ -129,10 +135,12 @@ impl Display for FragmentState {
 #[derive(Copy, Clone, AsBytes)]
 #[repr(C)]
 pub struct FragmentUniform {
-    screen_size: [f32; 2],
-    center: [f32; 2],
-    scale: f32,
+    screen_size: [GPUFloat; 2],
+    center: [GPUFloat; 2],
+    scale: GPUFloat,
     max_iterations: u32,
+    // Required if using f64
+    _padding: u32,
 }
 
 fn parse_or_usage<T, S>(s: S) -> T

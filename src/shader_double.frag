@@ -1,14 +1,12 @@
 #version 450
 
-precision highp float;
-
 in vec4 gl_FragCoord;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform Locals {
-    vec2 screenSize;
-    vec2 center;
-    float scale;
+    dvec2 screenSize;
+    dvec2 center;
+    double scale;
     uint maxIter;
 };
 
@@ -19,18 +17,18 @@ vec3 hsv2rgb(vec3 c) {
 }
 
 void main() {
-    float aspectRatio = screenSize.x / screenSize.y;
-    vec2 coord;
+    double aspectRatio = screenSize.x / screenSize.y;
+    dvec2 coord;
     coord.x = ((gl_FragCoord.x / screenSize.y) - 0.5 * aspectRatio) * scale;
     coord.y = ((gl_FragCoord.y / screenSize.y) - 0.5) * scale;
 
-    vec2 c = vec2(coord.x + center.x, coord.y - center.y);
+    dvec2 c = dvec2(coord.x + center.x, coord.y - center.y);
 
-    vec2 z = c;
+    dvec2 z = c;
     int i;
     for (i = 0; i < maxIter; i++) {
-        float x = (z.x * z.x - z.y * z.y) + c.x;
-        float y = (z.y * z.x + z.x * z.y) + c.y;
+        double x = (z.x * z.x - z.y * z.y) + c.x;
+        double y = (z.y * z.x + z.x * z.y) + c.y;
 
         if ((x * x + y * y) > 4.0) {
             break;

@@ -27,14 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             .expect("could not convert path to string")
                     );
 
-                    let src = if cfg!(feature = "double") && shader_kind == ShaderKind::Fragment {
-                        fs::read_to_string(path)?
-                            .replace("precision highp float;", "")
-                            .replace("float", "double")
-                            .replace("vec2", "dvec2")
-                    } else {
-                        fs::read_to_string(path)?
-                    };
+                    let src = fs::read_to_string(path)?;
 
                     let compiled = compiler.compile_into_spirv(
                         &src,

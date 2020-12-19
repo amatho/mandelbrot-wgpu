@@ -89,7 +89,11 @@ impl State {
             });
 
         let vs_module = device.create_shader_module(wgpu::include_spirv!("shader.vert.spv"));
+
+        #[cfg(not(feature = "double"))]
         let fs_module = device.create_shader_module(wgpu::include_spirv!("shader.frag.spv"));
+        #[cfg(feature = "double")]
+        let fs_module = device.create_shader_module(wgpu::include_spirv!("shader_double.frag.spv"));
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
