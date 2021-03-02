@@ -25,7 +25,7 @@ impl State {
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::Default,
+                power_preference: Default::default(),
                 compatible_surface: Some(&surface),
             })
             .await
@@ -34,9 +34,9 @@ impl State {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
+                    label: Some("Device Descriptor"),
                     features: wgpu::Features::empty(),
                     limits: wgpu::Limits::default(),
-                    shader_validation: true,
                 },
                 None,
             )
@@ -44,7 +44,7 @@ impl State {
             .unwrap();
 
         let sc_desc = wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
             width: fragment_state.size.width,
             height: fragment_state.size.height,
@@ -64,9 +64,10 @@ impl State {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: wgpu::BindingType::Buffer {
                         min_binding_size: None,
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Uniform,
                     },
                     count: None,
                 }],
@@ -77,7 +78,11 @@ impl State {
             layout: &uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(..)),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &uniform_buffer,
+                    size: None,
+                    offset: 0,
+                },
             }],
         });
 
@@ -88,47 +93,40 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        let vs_module = device.create_shader_module(wgpu::include_spirv!("shader.vert.spv"));
+        let vs_module = device.create_shader_module(&wgpu::include_spirv!("shader.vert.spv"));
 
         #[cfg(not(feature = "double"))]
-        let fs_module = device.create_shader_module(wgpu::include_spirv!("shader.frag.spv"));
+        let fs_module = device.create_shader_module(&wgpu::include_spirv!("shader.frag.spv"));
         #[cfg(feature = "double")]
-        let fs_module = device.create_shader_module(wgpu::include_spirv!("shader_double.frag.spv"));
+        let fs_module =
+            device.create_shader_module(&wgpu::include_spirv!("shader_double.frag.spv"));
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
+            vertex: wgpu::VertexState {
                 module: &vs_module,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+            fragment: Some(wgpu::FragmentState {
                 module: &fs_module,
                 entry_point: "main",
+                targets: &[sc_desc.format.into()],
             }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-            }),
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: sc_desc.format,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            depth_stencil_state: None,
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint16,
-                vertex_buffers: &[],
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState {
+                alpha_to_coverage_enabled: false,
+                count: 1,
+                mask: !0,
+            },
+            depth_stencil: None,
         });
 
         State {
@@ -188,6 +186,7 @@ impl State {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass Descriptor"),
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,
                     resolve_target: None,

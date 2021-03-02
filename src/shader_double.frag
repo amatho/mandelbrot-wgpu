@@ -42,6 +42,8 @@ void main() {
         outColor = vec4(0.0, 0.0, 0.0, 1.0);
     } else {
         float hue = i / float(maxIter);
-        outColor = vec4(hsv2rgb(vec3(hue, 1.0, 1.0)), 1.0);
+        float saturation = 1.0;
+        float value = 0.7;
+        outColor = vec4(hsv2rgb(vec3(mod(hue + 0.75, 1.0), saturation, value)), 1.0);
     }
 }
