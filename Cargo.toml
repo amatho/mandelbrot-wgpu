@@ -2,17 +2,16 @@
 name = "mandelbrot-wgpu"
 version = "0.1.0"
 authors = ["Amandus Søve Thorsrud <ama.thorsrud@gmail.com>"]
-edition = "2021"
+edition = "2024"
 
 [features]
 double = []
 
 [dependencies]
-wgpu = "0.7.0"
-winit = "0.26.1"
-futures = "0.3.21"
-zerocopy = "0.6.1"
-
-[build-dependencies]
-shaderc = "0.7.0"
-walkdir = "2.3.1"
+anyhow = "1.0"
+wgpu = { version = "25.0", features = [ "vulkan", "vulkan-portability" ] }
+winit = "0.30"
+env_logger = "0.10"
+log = "0.4"
+pollster = "0.3"
+bytemuck = { version = "1.16", features = [ "derive" ] }

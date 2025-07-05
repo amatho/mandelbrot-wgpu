@@ -1,61 +1,80 @@
-use crate::fragment::{FragmentState, FragmentUniform};
-use event::WindowEvent;
-use wgpu::{
-    util::DeviceExt, BindGroup, Buffer, Device, Queue, RenderPipeline, Surface, SwapChain,
-    SwapChainDescriptor,
-};
-use winit::{event, window::Window};
-use zerocopy::AsBytes;
+use std::sync::Arc;
+
+use crate::fragment::FragmentState;
+use wgpu::util::DeviceExt;
+use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
 pub struct State {
-    surface: Surface,
-    device: Device,
-    queue: Queue,
-    sc_desc: SwapChainDescriptor,
-    swap_chain: SwapChain,
-    render_pipeline: RenderPipeline,
-    uniform_buffer: Buffer,
-    uniform_bind_group: BindGroup,
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    is_surface_configured: bool,
+    window: Arc<Window>,
     fragment_state: FragmentState,
+    render_pipeline: wgpu::RenderPipeline,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
 }
 
+#[cfg(not(feature = "double"))]
+const REQUIRED_FEATURES: wgpu::Features = wgpu::Features::empty();
+#[cfg(feature = "double")]
+const REQUIRED_FEATURES: wgpu::Features = wgpu::Features::SHADER_F64;
+
 impl State {
-    pub async fn new(fragment_state: FragmentState, window: &Window) -> Self {
-        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
-        let surface = unsafe { instance.create_surface(window) };
+    pub async fn new(fragment_state: FragmentState, window: Arc<Window>) -> anyhow::Result<Self> {
+        let size = window.inner_size();
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+
+        let surface = instance.create_surface(window.clone())?;
+
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: Default::default(),
+                power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
             })
-            .await
-            .unwrap();
+            .await?;
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Device Descriptor"),
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await
-            .unwrap();
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: REQUIRED_FEATURES,
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
+            .await?;
 
-        let sc_desc = wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            width: fragment_state.size.width,
-            height: fragment_state.size.height,
-            present_mode: wgpu::PresentMode::Mailbox,
+        let surface_caps = surface.get_capabilities(&adapter);
+
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
-        let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Unifrom Buffer"),
-            contents: fragment_state.fragment_uniform().as_bytes(),
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            label: Some("Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[fragment_state.fragment_uniform()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let uniform_bind_group_layout =
@@ -63,11 +82,11 @@ impl State {
                 label: Some("Uniform Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        min_binding_size: None,
-                        has_dynamic_offset: false,
                         ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
                     count: None,
                 }],
@@ -78,11 +97,7 @@ impl State {
             layout: &uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &uniform_buffer,
-                    size: None,
-                    offset: 0,
-                },
+                resource: uniform_buffer.as_entire_binding(),
             }],
         });
 
@@ -93,74 +108,117 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        let vs_module = device.create_shader_module(&wgpu::include_spirv!("shader.vert.spv"));
-
+        let main_shader_str = include_str!("shader.wgsl");
         #[cfg(not(feature = "double"))]
-        let fs_module = device.create_shader_module(&wgpu::include_spirv!("shader.frag.spv"));
+        let fragment_shader_str = main_shader_str;
         #[cfg(feature = "double")]
-        let fs_module =
-            device.create_shader_module(&wgpu::include_spirv!("shader_double.frag.spv"));
+        let fragment_shader_str = include_str!("shader_double.wgsl");
+
+        let vs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Vertex Shader"),
+            source: wgpu::ShaderSource::Wgsl(main_shader_str.into()),
+        });
+
+        let fs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Fragment Shader"),
+            source: wgpu::ShaderSource::Wgsl(fragment_shader_str.into()),
+        });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vs_module,
-                entry_point: "main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fs_module,
-                entry_point: "main",
-                targets: &[sc_desc.format.into()],
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
-                polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
-            },
-            multisample: wgpu::MultisampleState {
-                alpha_to_coverage_enabled: false,
-                count: 1,
-                mask: !0,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
             },
             depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
         });
 
-        State {
+        Ok(State {
             surface,
             device,
             queue,
-            sc_desc,
-            swap_chain,
+            config,
+            is_surface_configured: false,
+            fragment_state,
+            window,
             render_pipeline,
             uniform_buffer,
             uniform_bind_group,
-            fragment_state,
+        })
+    }
+
+    pub fn window(&self) -> &Window {
+        &self.window
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.fragment_state.size = (width, height);
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
+            self.is_surface_configured = true;
         }
     }
 
-    pub fn fragment_state(&self) -> &FragmentState {
-        &self.fragment_state
+    pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+        match (code, is_pressed) {
+            (KeyCode::Escape, true) => event_loop.exit(),
+            (c, true) => self.fragment_state.handle_key_pressed(c),
+            _ => {}
+        }
+        if is_pressed {}
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        self.fragment_state.size = new_size;
-        self.sc_desc.width = new_size.width;
-        self.sc_desc.height = new_size.height;
-        self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
+    pub fn update(&mut self) {
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.fragment_state.fragment_uniform()]),
+        );
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
-        self.fragment_state.input(event)
-    }
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.window.request_redraw();
 
-    pub fn update(&mut self) {}
+        if !self.is_surface_configured {
+            return Ok(());
+        }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
-        let frame = self.swap_chain.get_current_frame()?.output;
+        let output = self.surface.get_current_texture()?;
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
             .device
@@ -168,27 +226,11 @@ impl State {
                 label: Some("Render Encoder"),
             });
 
-        let new_uniform_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Uniform Buffer"),
-                    contents: self.fragment_state.fragment_uniform().as_bytes(),
-                    usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_SRC,
-                });
-
-        encoder.copy_buffer_to_buffer(
-            &new_uniform_buffer,
-            0,
-            &self.uniform_buffer,
-            0,
-            std::mem::size_of::<FragmentUniform>() as u64,
-        );
-
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass Descriptor"),
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &frame.view,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -197,10 +239,12 @@ impl State {
                             b: 0.3,
                             a: 1.0,
                         }),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
-                }],
+                })],
                 depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
@@ -211,6 +255,7 @@ impl State {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
 
         Ok(())
     }
